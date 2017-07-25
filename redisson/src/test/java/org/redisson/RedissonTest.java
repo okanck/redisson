@@ -6,10 +6,7 @@ import static org.redisson.BaseTest.createInstance;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -239,7 +236,7 @@ public class RedissonTest {
         .setConnectionPoolSize(2);
         Redisson.create(redissonConfig);        
     }
-    
+
     @Test
     public void testConnectionListener() throws IOException, InterruptedException, TimeoutException {
 
@@ -289,6 +286,44 @@ public class RedissonTest {
         r.shutdown();
 
         Assert.assertEquals(0, pp.stop());
+
+        await().atMost(2, TimeUnit.SECONDS).until(() -> assertThat(connectCounter.get()).isEqualTo(1));
+        await().atMost(2, TimeUnit.SECONDS).until(() -> assertThat(disconnectCounter.get()).isEqualTo(1));
+    }
+
+    @Test
+    public void testConnectionListenerWithSingleRunner() throws IOException, InterruptedException, TimeoutException{
+        RedisProcess p = new RedisRunner()
+                .nosave()
+                .randomPort()
+                .randomDir()
+                .run();
+
+        Config c = new Config();
+        c.useSingleServer().setAddress(p.getRedisServerAddressAndPort());
+
+        final AtomicInteger connectCounter = new AtomicInteger();
+        final AtomicInteger disconnectCounter = new AtomicInteger();
+
+        RedissonClient r = Redisson.create(c);
+
+        r.getNodesGroup().addConnectionListener(new ConnectionListener() {
+
+            @Override
+            public void onConnect(InetSocketAddress addr) {
+                assertThat(addr).isEqualTo(new InetSocketAddress(p.getRedisServerBindAddress(), p.getRedisServerPort()));
+                connectCounter.incrementAndGet();
+            }
+
+            @Override
+            public void onDisconnect(InetSocketAddress addr) {
+                assertThat(addr).isEqualTo(new InetSocketAddress(p.getRedisServerBindAddress(), p.getRedisServerPort()));
+                disconnectCounter.incrementAndGet();
+            }
+        });
+
+        p.stop();
+        r.shutdown();
 
         await().atMost(2, TimeUnit.SECONDS).until(() -> assertThat(connectCounter.get()).isEqualTo(1));
         await().atMost(2, TimeUnit.SECONDS).until(() -> assertThat(disconnectCounter.get()).isEqualTo(1));
